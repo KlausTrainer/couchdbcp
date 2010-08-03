@@ -1,0 +1,11 @@
+{couchdbcp_cookie, couchdbcp_cookie_default}. % erlang cookie
+{couchdbcp_heart_command, "./start.sh $NODENAME config/couchdbcp.erlenv"}. % heartbeat command
+{couchdbcp_sasl_config, "config/elog"}.
+
+{couchdbcp_nodes, [
+	{node_info, "proxy-1@127.0.0.11", 8000, "couch-1@localhost", 5991},
+	{node_info, "proxy-2@127.0.0.12", 8000, "couch-2@localhost", 5992},
+	{node_info, "proxy-3@127.0.0.13", 8000, "couch-3@localhost", 5993}]}.
+{couchdbcp_read_consistency, atomic}. % atomic or eventual
+{couchdbcp_write_consistency, atomic}. % here only atomic is supported currently
+{couchdbcp_admin_authorization, {"admin", "secret"}}. % {User, Password}

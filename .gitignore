@@ -1,0 +1,6 @@
+doc/*
+ebin/*
+*.beam
+*.swn
+*.swo
+*.swp
