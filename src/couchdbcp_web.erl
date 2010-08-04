@@ -13,7 +13,7 @@
 %% user interface
 -export([start/1, stop/0, loop/2]).
 %% intermodule exports
--export([get_db_and_doc_name/1, make_header_list/3, make_url/2]).
+-export([get_db_and_doc_name/1, header_list_to_binary/1, make_header_list/3, make_url/2]).
 
 -define(IBROWSE_OPTIONS, [{response_format, binary}, {connect_timeout, 5000}, {inactivity_timeout, infinity}]).
 -define(TIMEOUT, 5000).
@@ -316,8 +316,16 @@ handle_read_request(Req, Addr, RawPath, HeaderList, Method) ->
                        {_, ETag1} -> ETag1
                        end,
                 case couchdbcp:get_app_env(this_couch) of
-                Addr when ETag =/= undefined andalso (ResCode1 =:= 200 orelse ResCode1 =:= 304) -> header_cache ! {put, ResHeaderList1, ETag};
-                _ -> ok
+                Addr when ETag =/= undefined andalso (ResCode1 =:= 200 orelse ResCode1 =:= 304) ->
+                    {_DB, DocName} = get_db_and_doc_name(RawPath),
+                    case DocName of
+                    "_all_docs" -> % don't cache
+                        ok;
+                    _ ->
+                        header_cache ! {put, {RawPath, ResHeaderList1, ETag}}
+                    end;
+                _ ->
+                    ok
                 end,
                 Res = Req:start_response({ResCode1, ResHeaderList1}),
                 ibrowse:stream_next(ReqId),

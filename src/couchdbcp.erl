@@ -85,7 +85,7 @@ header_cache() ->
             end,
             header_cache();
         {put, {RawPath, HeaderList, ETag}} ->
-            put(?l2b(RawPath), {couchdbcp_web:header_list_to_binary(HeaderList), ?l2b(string:strip(ETag, both, $"))}),
+            put(?l2b(RawPath), {couchdbcp_web:header_list_to_binary(HeaderList), ?l2b(ETag)}),
             header_cache();
         {erase, RawPath} ->
             erase(?l2b(RawPath)),
@@ -328,8 +328,16 @@ reader(Addr, RawPath, Cookie, IfNoneMatch) ->
                             {_, ETag2} -> ETag2
                             end,
                     case Addr of
-                    ThisCouch when ETag1 =/= undefined andalso (ResCode =:= 200 orelse ResCode =:= 304) -> header_cache ! {put, ResHeaderList, ETag1};
-                    _ -> ok
+                    ThisCouch when ETag1 =/= undefined andalso (ResCode =:= 200 orelse ResCode =:= 304) ->
+                        {_DB, DocName} = couchdbcp_web:get_db_and_doc_name(RawPath),
+                        case DocName of
+                        "_all_docs" -> % don't cache
+                            ok;
+                        _ ->
+                            header_cache ! {put, {RawPath, ResHeaderList, ETag1}}
+                        end;
+                    _ ->
+                        ok
                     end,
                     From ! {rev_info, ?l2i(ResCode), ETag1, ResHeaderList, Addr}
                 end
