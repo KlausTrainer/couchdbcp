@@ -13,7 +13,7 @@
 %% user interface
 -export([start/0, start/1, stop/0]).
 %% intermodule exports
--export([get_app_env/1, get_app_env/2, cookie_store/0, header_cache/0, check_read_quorum/3, notify_replication_success_to_peers/1, peer_notifier/2, replication_status_store/0, write/5]).
+-export([get_app_env/1, get_app_env/2, cookie_store/0, header_cache/0, check_read_quorum/3, notify_replication_success_to_peers/1, peer_notifier/2, replication_status_store/0, write/6]).
 
 -define(IBROWSE_OPTIONS, [{response_format, binary}, {connect_timeout, 5000}, {inactivity_timeout, infinity}]).
 -define(READ_TIMEOUT, 6000).
@@ -131,8 +131,8 @@ check_read_quorum(RawPath, Cookie, IfNoneMatch) ->
     Proxies = get_app_env(proxies),
     Pids = lists:map(fun(Proxy) ->
                          Addr = case get_app_env(this_proxy) of
-                                % if Proxy is this_proxy,
-                                % write directly to this_couch
+                                % if ``Proxy'' is ``this_proxy'',
+                                % write directly to ``this_couch''
                                 Proxy -> get_app_env(this_couch);
                                 _ -> Proxy
                                 end,
@@ -150,11 +150,10 @@ check_read_quorum(RawPath, Cookie, IfNoneMatch) ->
             {ok, Result}
     end.
 
-%% @spec write(Method::method(), RawPath::string(), Cookie::string(), Headers::headers(), Body::binary()) -> {ok, {ResCode::int(), ResHeaderList::header_list(), ResBody::binary()}} | {error, Code}
-%% @doc Writes to all cluster nodes that are alive. Succeeds if the number of
-%%      successful write operations is greater than half of the number of
-%%      cluster nodes.
-write(Method, RawPath, Cookie, Headers, Body) ->
+%% @spec write(Consistency::atomic|eventual, Method::method(), RawPath::string(), Cookie::string(), Headers::headers(), Body::binary()) -> {ok, {ResCode::int(), ResHeaderList::header_list(), ResBody::binary()}} | {error, Code}
+%% @doc Depending on the value of ``Consistency'', this function starts a write
+%%      operation with either eventual or atomic data consistency guaranteed.
+write(Consistency, Method, RawPath, Cookie, Headers, Body) ->
     Proxies = get_app_env(proxies),
     Pids = lists:foldl(
                fun(Proxy, Pids) ->
@@ -175,7 +174,10 @@ write(Method, RawPath, Cookie, Headers, Body) ->
                end, [], Proxies),
     MyPid = self(),
     Pid = spawn(fun() ->
-                    write_response_processor(MyPid, Method, RawPath, Cookie, Headers, length(Proxies), 0, [])
+                    case Consistency of
+                    atomic -> atomic_write_response_processor(MyPid, Method, RawPath, Cookie, Headers, length(Proxies), 0, []);
+                    eventual -> eventual_write_response_processor(MyPid, Method, RawPath, Cookie, Headers, length(Proxies), 0, [])
+                    end
                 end),
     lists:foreach(fun(Pid1) ->
                       Pid1 ! {Pid, write}
@@ -307,7 +309,7 @@ reader(Addr, RawPath, Cookie, IfNoneMatch) ->
                 HeaderList =
                     case Addr of
                     ThisCouch -> [];
-                    _ -> [{'X-CouchDBCP-Read-Consistency', eventual}]
+                    _ -> [{'X-CouchDBCP-Consistency', eventual}]
                     end,
                 HeaderList1 =
                     case Cookie of
@@ -389,7 +391,7 @@ read_response_processor(Pid, NumNodes, NumResps, Resps) ->
         end
     end.
 
-write_response_processor(Pid, Method, RawPath, Cookie, ReqHeaders, NumNodes, NumResps, Results) when NumResps =:= NumNodes ->
+atomic_write_response_processor(Pid, Method, RawPath, Cookie, ReqHeaders, NumNodes, NumResps, Results) when NumResps =:= NumNodes ->
     case get(quorum) of
     undefined ->
         case find_write_quorum(Results, NumNodes) of
@@ -404,7 +406,7 @@ write_response_processor(Pid, Method, RawPath, Cookie, ReqHeaders, NumNodes, Num
     {{_ResCode, ResHeaderList, _ResBody}, Addr} ->
         send_cookies_to_peers(Addr, Cookie, ResHeaderList, Results)
     end;
-write_response_processor(Pid, Method, RawPath, Cookie, ReqHeaders, NumNodes, NumResps, Results) ->
+atomic_write_response_processor(Pid, Method, RawPath, Cookie, ReqHeaders, NumNodes, NumResps, Results) ->
     Quorum = get(quorum),
     case NumResps > NumNodes div 2 of
     true when Quorum =:= undefined ->
@@ -425,13 +427,77 @@ write_response_processor(Pid, Method, RawPath, Cookie, ReqHeaders, NumNodes, Num
     end,
     receive
         {write_success, Res1, Addr1} ->
-            write_response_processor(Pid, Method, RawPath, Cookie, ReqHeaders, NumNodes, NumResps + 1, [{Res1, Addr1}|Results])
+            atomic_write_response_processor(Pid, Method, RawPath, Cookie, ReqHeaders, NumNodes, NumResps + 1, [{Res1, Addr1}|Results])
     after ?WRITE_TIMEOUT ->
         case get(quorum) of
         undefined ->
             Pid ! {self(), {error, 503}},
             delete_garbage(Method, RawPath, Cookie, ReqHeaders, Results);
         {{ResCode1, _ResHeaderList1, _ResBody1}, _Addr1} ->
+            if
+            ResCode1 =:= 200; ResCode1 =:= 201 ->
+                Proxies = get_app_env(proxies),
+                ThisCouch = get_app_env(this_couch),
+                LivePeers = lists:foldl(fun(E, Acc) ->
+                                            {_Res, Addr2} = E,
+                                            case Addr2 of
+                                            ThisCouch -> Acc;
+                                            Addr3 -> [Addr3|Acc]
+                                            end
+                                        end, [], Results),
+                lists:foreach(
+                    fun(Addr2) ->
+                        Addr3 = case get_app_env(this_proxy) of
+                                Addr2 -> ThisCouch;
+                                _ -> Addr2
+                                end,
+                        case lists:keymember(Addr3, 2, Results) of
+                        true ->
+                            ok;
+                        false ->
+                            {DB, _DocName} = couchdbcp_web:get_db_and_doc_name(RawPath),
+                            case string:substr(DB, 1, 1) =:= "_" of
+                            true ->
+                                ok;
+                            false ->
+                                Pid1 = get_app_env({peer_notifier, Addr2}),
+                                Pid1 ! {tell, DB},
+                                tell_peers(LivePeers, Addr2, DB)
+                            end
+                        end
+                    end, Proxies);
+            true ->
+                ok
+            end
+        end
+    end.
+
+eventual_write_response_processor(_Pid, _Method, _RawPath, Cookie, _ReqHeaders, NumNodes, NumResps, Results) when NumResps =:= NumNodes ->
+    {{_ResCode, ResHeaderList, _ResBody}, Addr} = get(result),
+    send_cookies_to_peers(Addr, Cookie, ResHeaderList, Results);
+eventual_write_response_processor(Pid, Method, RawPath, Cookie, ReqHeaders, NumNodes, NumResps, Results) ->
+    case NumResps of
+    0 ->
+        ok;
+    1 ->
+        [Result] = Results,
+        put(result, Result),
+        {Res, _Addr} = Result,
+        Pid ! {self(), {ok, Res}};
+    _ ->
+        {Res, Addr} = get(result),
+        {_ResCode, ResHeaderList, _ResBody} = Res,
+        send_cookies_to_peers(Addr, Cookie, ResHeaderList, Results)
+    end,
+    receive
+        {write_success, Res1, Addr1} ->
+            eventual_write_response_processor(Pid, Method, RawPath, Cookie, ReqHeaders, NumNodes, NumResps + 1, [{Res1, Addr1}|Results])
+    after ?WRITE_TIMEOUT ->
+        case get(result) of
+        undefined ->
+            Pid ! {self(), {error, 503}};
+        {Res1, _Addr1} ->
+            {ResCode1, _ResHeaderList1, _ResBody1} = Res1,
             if
             ResCode1 =:= 200; ResCode1 =:= 201 ->
                 Proxies = get_app_env(proxies),
@@ -489,7 +555,7 @@ delete_garbage(Method, RawPath, Cookie, ReqHeaders, Results) ->
                         {_, ETag} -> mochiweb_headers:enter('If-Match', ETag, ReqHeaders)
                         end,
                     ReqHeaders2 = mochiweb_headers:enter('X-CouchDBCP-Write', "true", ReqHeaders1),
-                    % KLUDGE: This is an ibrowse issue; ibrowse adds a "content-length" header field--so prevent that it occurs twice.
+                    % KLUDGE: This is an ibrowse issue; ibrowse adds a "content-length" header field - so prevent that it occurs twice.
                     ReqHeaders3 = mochiweb_headers:delete_any('Content-Length', ReqHeaders2),
                     ReqHeaders4 = mochiweb_headers:delete_any('Host', ReqHeaders3),
                     RawPath1 =

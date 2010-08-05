@@ -48,6 +48,7 @@ loop(Req, _DocRoot) ->
     ReqParams = Req:parse_qs(),
     Cookie = Req:get_cookie_value("AuthSession"),
     IfNoneMatch = Req:get_header_value("If-None-Match"),
+    Consistency = Req:get_header_value("X-CouchDBCP-Consistency"),
     CouchDBCP_Tell = Req:get_header_value("X-CouchDBCP-Tell"),
     CouchDBCP_Write = Req:get_header_value("X-CouchDBCP-Write"),
     CouchDBCP_Replicate = Req:get_header_value("X-CouchDBCP-Replicate"),
@@ -55,12 +56,12 @@ loop(Req, _DocRoot) ->
     CouchDBCP_SetCookie = Req:get_header_value("X-CouchDBCP-Set-Cookie"),
     CouchDBCP_UnsetCookie = Req:get_header_value("X-CouchDBCP-Unset-Cookie"),
     ReadConsistency =
-        case Req:get_header_value("X-CouchDBCP-Read-Consistency") of
+        case Consistency of
         undefined -> couchdbcp:get_app_env(couchdbcp_read_consistency);
         R -> ?l2a(R)
         end,
     WriteConsistency =
-        case Req:get_header_value("X-CouchDBCP-Write-Consistency") of
+        case Consistency of
         undefined -> couchdbcp:get_app_env(couchdbcp_write_consistency);
         W -> ?l2a(W)
         end,
@@ -203,7 +204,7 @@ loop(Req, _DocRoot) ->
         Local = string:substr(DocName, 1, 6) =:= "_local",
         case CouchDBCP_Write of
         undefined when Local =:= false ->
-            case couchdbcp:write(Method, RawPath, Cookie, Headers, Body) of
+            case couchdbcp:write(WriteConsistency, Method, RawPath, Cookie, Headers, Body) of
             {error, Code} ->
                 Req:respond({Code, [], []});
             {ok, {ResCode, ResHeaderList, Body1}} ->
