@@ -391,13 +391,12 @@ read_response_processor(Pid, NumNodes, NumResps, Resps) ->
         end
     end.
 
-atomic_write_response_processor(Pid, Method, RawPath, Cookie, ReqHeaders, NumNodes, NumResps, Results) when NumResps =:= NumNodes ->
+atomic_write_response_processor(Pid, _Method, _RawPath, Cookie, _ReqHeaders, NumNodes, NumResps, Results) when NumResps =:= NumNodes ->
     case get(quorum) of
     undefined ->
         case find_write_quorum(Results, NumNodes) of
         {error, Code} ->
-            Pid ! {self(), {error, Code}},
-            delete_garbage(Method, RawPath, Cookie, ReqHeaders, Results);
+            Pid ! {self(), {error, Code}};
         {ok, {Res, Addr}} ->
             {_ResCode, ResHeaderList, _ResBody} = Res,
             Pid ! {self(), {ok, Res}},
@@ -431,8 +430,7 @@ atomic_write_response_processor(Pid, Method, RawPath, Cookie, ReqHeaders, NumNod
     after ?WRITE_TIMEOUT ->
         case get(quorum) of
         undefined ->
-            Pid ! {self(), {error, 503}},
-            delete_garbage(Method, RawPath, Cookie, ReqHeaders, Results);
+            Pid ! {self(), {error, 503}};
         {{ResCode1, _ResHeaderList1, _ResBody1}, _Addr1} ->
             if
             ResCode1 =:= 200; ResCode1 =:= 201 ->
@@ -534,49 +532,6 @@ eventual_write_response_processor(Pid, Method, RawPath, Cookie, ReqHeaders, NumN
                 ok
             end
         end
-    end.
-
-delete_garbage(Method, RawPath, Cookie, ReqHeaders, Results) ->
-    {DB, DocName} = couchdbcp_web:get_db_and_doc_name(RawPath),
-    DB_ = string:substr(DB, 1, 1) =:= "_",
-    DocName_ = string:substr(DocName, 1, 1) =:= "_",
-    if
-    DB_; DocName_ ->
-        ok;
-    true ->
-        lists:foreach(
-            fun(Result) ->
-                {{ResCode, HeaderList, _Body}, Addr} = Result,
-                if
-                (Method =:= copy orelse Method =:= put) andalso (ResCode =:= 200 orelse ResCode =:= 201) ->
-                    ReqHeaders1 =
-                        case lists:keyfind("Etag", 1, HeaderList) of
-                        false -> ReqHeaders;
-                        {_, ETag} -> mochiweb_headers:enter('If-Match', ETag, ReqHeaders)
-                        end,
-                    ReqHeaders2 = mochiweb_headers:enter('X-CouchDBCP-Write', "true", ReqHeaders1),
-                    % KLUDGE: This is an ibrowse issue; ibrowse adds a "content-length" header field - so prevent that it occurs twice.
-                    ReqHeaders3 = mochiweb_headers:delete_any('Content-Length', ReqHeaders2),
-                    ReqHeaders4 = mochiweb_headers:delete_any('Host', ReqHeaders3),
-                    RawPath1 =
-                        case Method of
-                        copy ->
-                            Id = mochiweb_headers:get_value('Destination', ReqHeaders),
-                            string:substr(RawPath, 1, string:rchr(RawPath, $/)) ++ Id;
-                        _ ->
-                            RawPath
-                        end,
-                    Url = couchdbcp_web:make_url(Addr, RawPath1),
-                    case ibrowse:send_req(Url, couchdbcp_web:make_header_list(ReqHeaders4, Cookie, Addr), delete, [], ?IBROWSE_OPTIONS) of
-                    {error, Reason} ->
-                        error_logger:info_msg("delete: ~p - ~p~n", [Url, Reason]);
-                    {ok, _, _, _} ->
-                        ok
-                    end;
-                true ->
-                    ok
-                end
-            end, Results)
     end.
 
 send_cookies_to_peers(Addr, Cookie, ResHeaderList, Results) ->
