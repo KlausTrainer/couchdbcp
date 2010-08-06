@@ -13,7 +13,7 @@
 %% user interface
 -export([start/1, stop/0, loop/2]).
 %% intermodule exports
--export([get_db_and_doc_name/1, header_list_to_binary/1, make_header_list/3, make_url/2]).
+-export([get_db_and_doc_name/1, make_header_list/3, make_url/2]).
 
 -define(IBROWSE_OPTIONS, [{response_format, binary}, {connect_timeout, 5000}, {inactivity_timeout, infinity}]).
 -define(TIMEOUT, 5000).
@@ -73,26 +73,9 @@ loop(Req, _DocRoot) ->
         Eventual = DocName =:= [] orelse Local orelse DocName =:= "_all_docs" orelse DocName =:= "_changes" orelse DocName =:= "_session",
         if
         ReadConsistency =:= eventual; DB_; Eventual ->
-            case Method of
-            head ->
-                case rpc(header_cache, {get, RawPath}) of
-                {HeaderBin, _ETag} ->
-                    send_cached_header(Req, 200, HeaderBin),
-                    Cached = true;
-                undefined ->
-                    Cached = false
-                end;
-            _ ->
-                Cached = false
-            end,
-            case Cached of
-            true ->
-                ok;
-            false ->
-                case handle_read_request(Req, ThisCouch, RawPath, make_header_list(Headers, Cookie, ThisCouch), Method) of
-                {error, _Reason} -> gen_tcp:close(Req:get(socket));
-                _ -> ok
-                end
+            case handle_read_request(Req, ThisCouch, RawPath, make_header_list(Headers, Cookie, ThisCouch), Method) of
+            {error, _Reason} -> gen_tcp:close(Req:get(socket));
+            _ -> ok
             end;
         ReadConsistency =:= atomic ->
             case couchdbcp:check_read_quorum(RawPath, Cookie, undefined) of
@@ -118,16 +101,9 @@ loop(Req, _DocRoot) ->
         Eventual = DocName =:= [] orelse Local orelse DocName =:= "_all_docs" orelse DocName =:= "_changes" orelse DocName =:= "_session",
         if
         ReadConsistency =:= eventual; DB_; Eventual ->
-            case rpc(header_cache, {get, RawPath}) of
-            {HeaderBin, ETag} when ETag =:= IfNoneMatch ->
-                send_cached_header(Req, 304, HeaderBin);
-            {HeaderBin, _} when Method =:= head ->
-                send_cached_header(Req, 200, HeaderBin);
-            _ ->
-                case handle_read_request(Req, ThisCouch, RawPath, make_header_list(Headers, Cookie, ThisCouch), Method) of
-                {error, _Reason} -> gen_tcp:close(Req:get(socket));
-                _ -> ok
-                end
+            case handle_read_request(Req, ThisCouch, RawPath, make_header_list(Headers, Cookie, ThisCouch), Method) of
+            {error, _Reason} -> gen_tcp:close(Req:get(socket));
+            _ -> ok
             end;
         ReadConsistency =:= atomic ->
             case couchdbcp:check_read_quorum(RawPath, Cookie, IfNoneMatch) of
@@ -208,12 +184,6 @@ loop(Req, _DocRoot) ->
             {error, Code} ->
                 Req:respond({Code, [], []});
             {ok, {ResCode, ResHeaderList, Body1}} ->
-                if
-                Method =/= copy andalso ResCode < 400 ->
-                    header_cache ! {erase, RawPath};
-                true ->
-                    ok
-                end,
                 case lists:keyfind("Transfer-Encoding", 1, ResHeaderList) of
                 {_, "chunked"} ->
                     ResHeaderList1 = lists:keydelete("Transfer-Encoding", 1, ResHeaderList),
@@ -312,22 +282,6 @@ handle_read_request(Req, Addr, RawPath, HeaderList, Method) ->
             {ibrowse_async_headers, ReqId, ResCode, ResHeaderList} ->
                 ResCode1 = ?l2i(ResCode),
                 ResHeaderList1 = replace_location_header(ResHeaderList, Req),
-                ETag = case lists:keyfind("Etag", 1, ResHeaderList1) of
-                       false -> undefined;
-                       {_, ETag1} -> ETag1
-                       end,
-                case couchdbcp:get_app_env(this_couch) of
-                Addr when ETag =/= undefined andalso (ResCode1 =:= 200 orelse ResCode1 =:= 304) ->
-                    {_DB, DocName} = get_db_and_doc_name(RawPath),
-                    case DocName of
-                    "_all_docs" -> % don't cache
-                        ok;
-                    _ ->
-                        header_cache ! {put, {RawPath, ResHeaderList1, ETag}}
-                    end;
-                _ ->
-                    ok
-                end,
                 Res = Req:start_response({ResCode1, ResHeaderList1}),
                 ibrowse:stream_next(ReqId),
                 case lists:keyfind("Transfer-Encoding", 1, ResHeaderList1) of
@@ -358,12 +312,6 @@ handle_write_request(Req, Addr, RawPath, HeaderList, Method, Body) ->
         receive
             {ibrowse_async_headers, ReqId, ResCode, ResHeaderList} ->
                 ResCode1 = ?l2i(ResCode),
-                if
-                Method =/= copy andalso ResCode1 < 400 ->
-                    header_cache ! {erase, RawPath};
-                true ->
-                    ok
-                end,
                 ResHeaderList1 = replace_location_header(ResHeaderList, Req),
                 Res = Req:start_response({ResCode1, ResHeaderList1}),
                 ibrowse:stream_next(ReqId),

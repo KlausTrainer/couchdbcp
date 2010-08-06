@@ -23,7 +23,6 @@ start(_Type, _StartArgs) ->
     _ -> read_config()
     end,
     register(cookie_store, spawn(fun couchdbcp:cookie_store/0)),
-    register(header_cache, spawn(fun couchdbcp:header_cache/0)),
     register(replication_status_store, spawn(fun couchdbcp:replication_status_store/0)),
     start_peer_notifiers(),
     register(couchdbcp_app, self()),

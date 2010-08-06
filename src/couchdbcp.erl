@@ -13,7 +13,7 @@
 %% user interface
 -export([start/0, start/1, stop/0]).
 %% intermodule exports
--export([get_app_env/1, get_app_env/2, cookie_store/0, header_cache/0, check_read_quorum/3, notify_replication_success_to_peers/1, peer_notifier/2, replication_status_store/0, write/6]).
+-export([get_app_env/1, get_app_env/2, cookie_store/0, check_read_quorum/3, notify_replication_success_to_peers/1, peer_notifier/2, replication_status_store/0, write/6]).
 
 -define(IBROWSE_OPTIONS, [{response_format, binary}, {connect_timeout, 5000}, {inactivity_timeout, infinity}]).
 -define(READ_TIMEOUT, 6000).
@@ -72,24 +72,6 @@ get_app_env(Opt, Default) ->
         {ok, [[Val|_]]} -> Val;
         error -> Default
         end
-    end.
-
-%% @spec header_cache() -> none()
-%% @doc Caches document metadata, i.e. HTTP headers with ETag: ``{Header, ETag}''
-header_cache() ->
-    receive
-        {From, {get, RawPath}} ->
-            case get(?l2b(RawPath)) of
-            undefined -> From ! {self(), undefined};
-            {HeaderBin, ETagBin} -> From ! {self(), {HeaderBin, ?b2l(ETagBin)}}
-            end,
-            header_cache();
-        {put, {RawPath, HeaderList, ETag}} ->
-            put(?l2b(RawPath), {couchdbcp_web:header_list_to_binary(HeaderList), ?l2b(ETag)}),
-            header_cache();
-        {erase, RawPath} ->
-            erase(?l2b(RawPath)),
-            header_cache()
     end.
 
 %% @spec cookie_store() -> none()
@@ -284,65 +266,31 @@ reader(Addr, RawPath, Cookie, IfNoneMatch) ->
     ThisCouch = get_app_env(this_couch),
     receive
         {From, get_rev} ->
-            Cached = 
+            Url = couchdbcp_web:make_url(Addr, RawPath),
+            HeaderList =
                 case Addr of
-                ThisCouch -> % try to retrieve it from the cache
-                    case rpc(header_cache, {get, RawPath}) of
-                    undefined ->
-                        false;
-                    {HeaderBin, ETag} ->
-                        Code = case ETag of
-                               IfNoneMatch -> 304;
-                               _ -> 200
-                               end,
-                        From ! {rev_info, Code, ETag, HeaderBin, Addr},
-                        true
-                    end;
-                _ ->
-                    false
+                ThisCouch -> [];
+                _ -> [{'X-CouchDBCP-Consistency', eventual}]
                 end,
-            case Cached of
-            true ->
-                ok;
-            false ->
-                Url = couchdbcp_web:make_url(Addr, RawPath),
-                HeaderList =
-                    case Addr of
-                    ThisCouch -> [];
-                    _ -> [{'X-CouchDBCP-Consistency', eventual}]
-                    end,
-                HeaderList1 =
-                    case Cookie of
-                    undefined -> HeaderList;
-                    _ -> [{'Cookie', "AuthSession=" ++ Cookie}|HeaderList]
-                    end,
-                HeaderList2 =
-                    case IfNoneMatch of
-                    undefined -> HeaderList1;
-                    _ -> [{'If-None-Match', IfNoneMatch}|HeaderList1]
-                    end,
-                case ibrowse:send_req(Url, HeaderList2, head, [], ?IBROWSE_OPTIONS) of
-                {error, Reason} ->
-                    error_logger:info_msg("head: ~p - ~p~n", [Url, Reason]);
-                {ok, ResCode, ResHeaderList, _} ->
-                    ETag1 = case lists:keyfind("Etag", 1, ResHeaderList) of
-                            false -> undefined;
-                            {_, ETag2} -> ETag2
-                            end,
-                    case Addr of
-                    ThisCouch when ETag1 =/= undefined andalso (ResCode =:= 200 orelse ResCode =:= 304) ->
-                        {_DB, DocName} = couchdbcp_web:get_db_and_doc_name(RawPath),
-                        case DocName of
-                        "_all_docs" -> % don't cache
-                            ok;
-                        _ ->
-                            header_cache ! {put, {RawPath, ResHeaderList, ETag1}}
-                        end;
-                    _ ->
-                        ok
-                    end,
-                    From ! {rev_info, ?l2i(ResCode), ETag1, ResHeaderList, Addr}
-                end
+            HeaderList1 =
+                case Cookie of
+                undefined -> HeaderList;
+                _ -> [{'Cookie', "AuthSession=" ++ Cookie}|HeaderList]
+                end,
+            HeaderList2 =
+                case IfNoneMatch of
+                undefined -> HeaderList1;
+                _ -> [{'If-None-Match', IfNoneMatch}|HeaderList1]
+                end,
+            case ibrowse:send_req(Url, HeaderList2, head, [], ?IBROWSE_OPTIONS) of
+            {error, Reason} ->
+                error_logger:info_msg("head: ~p - ~p~n", [Url, Reason]);
+            {ok, ResCode, ResHeaderList, _} ->
+                ETag1 = case lists:keyfind("Etag", 1, ResHeaderList) of
+                        false -> undefined;
+                        {_, ETag2} -> ETag2
+                        end,
+                From ! {rev_info, ?l2i(ResCode), ETag1, ResHeaderList, Addr}
             end
     end.
 
@@ -627,15 +575,4 @@ ensure_started(App) ->
     case application:start(App) of
     ok -> ok;
     {error, {already_started, App}} -> ok
-    end.
-
-rpc(Pid, Request) ->
-    Pid ! {self(), Request},
-    RealPid = case is_atom(Pid) of
-              true -> whereis(Pid);
-              false -> Pid
-              end,
-    receive
-        {RealPid, Res} ->
-            Res
     end.
