@@ -18,10 +18,6 @@
 -define(IBROWSE_OPTIONS, [{response_format, binary}, {connect_timeout, 5000}, {inactivity_timeout, infinity}]).
 -define(TIMEOUT, 5000).
 
-%% @type method() = copy | delete | get | head | post | put.
-%% @type header_list() = [{Header::atom()|string(), Value::atom()|string()}]
-%% @type address() = {Domain::ip_address()|string(), Port::int()}
-
 %% External API
 
 start(Options) ->
@@ -78,13 +74,13 @@ loop(Req, _DocRoot) ->
             _ -> ok
             end;
         ReadConsistency =:= atomic ->
-            case couchdbcp:check_read_quorum(RawPath, Cookie, undefined) of
+            case couchdbcp:check_read_quorum(RawPath, Cookie) of
             {error, Code} ->
                 Req:respond({Code, [], []});
             {ok, {_ResCode, ETag, ResHeader, Addr}} ->
                 case Method of
                 head ->
-                    send_cached_header(Req, 200, ResHeader);
+                    send_header(Req, 200, ResHeader);
                 _ ->
                     RawPath1 = add_rev_to_raw_path(ReqParams, RawPath, ETag),
                     case handle_read_request(Req, Addr, RawPath1, make_header_list(Headers, Cookie, Addr), Method) of
@@ -106,15 +102,15 @@ loop(Req, _DocRoot) ->
             _ -> ok
             end;
         ReadConsistency =:= atomic ->
-            case couchdbcp:check_read_quorum(RawPath, Cookie, IfNoneMatch) of
+            case couchdbcp:check_read_quorum(RawPath, Cookie) of
             {error, Code} ->
                 Req:respond({Code, [], []});
             {ok, {_ResCode, ETag, ResHeader, Addr}} ->
                 case ETag of
                 IfNoneMatch ->
-                    send_cached_header(Req, 304, ResHeader);
+                    send_header(Req, 304, ResHeader);
                 _ when Method =:= head ->
-                    send_cached_header(Req, 200, ResHeader);
+                    send_header(Req, 200, ResHeader);
                 _ ->
                     RawPath1 = add_rev_to_raw_path(ReqParams, RawPath, ETag),
                     case handle_read_request(Req, Addr, RawPath1, make_header_list(Headers, Cookie, Addr), Method) of
@@ -180,7 +176,7 @@ loop(Req, _DocRoot) ->
         Local = string:substr(DocName, 1, 6) =:= "_local",
         case CouchDBCP_Write of
         undefined when Local =:= false ->
-            case couchdbcp:write(WriteConsistency, Method, RawPath, Cookie, Headers, Body) of
+            case couchdbcp:write(WriteConsistency, RawPath, Cookie, Headers, Method, Body) of
             {error, Code} ->
                 Req:respond({Code, [], []});
             {ok, {ResCode, ResHeaderList, Body1}} ->
@@ -293,12 +289,12 @@ handle_read_request(Req, Addr, RawPath, HeaderList, Method) ->
         end
     end.
 
-%% @spec handle_write_request(Request, Addr::address(), RawPath::string(), header_list(), Method::atom(), Body::binary()) -> ok
+%% @spec handle_write_request(Request, Addr::address(), RawPath::string(), header_list(), Method::method(), Body::binary()) -> ok
 handle_write_request(Req, Addr, RawPath, HeaderList, Method, Body) ->
     HeaderList1 =
         case couchdbcp:get_app_env(this_couch) of
         Addr -> HeaderList;
-        _ -> lists:keystore("X-CouchDBCP-Write", 1, HeaderList, {"X-CouchDBCP-Write", "true"})
+        _ -> lists:keystore("X-CouchDBCP-Write", 1, HeaderList, {"X-CouchDBCP-Write", true})
         end,
     HeaderList2 = lists:keydelete('Host', 1, HeaderList1),
     % KLUDGE: This is an ibrowse issue; ibrowse adds a "content-length" header field--so prevent that it occurs twice.
@@ -351,8 +347,8 @@ send_response_body(Req, ReqId, Data) ->
         {error, timeout}
     end.
 
-%% @spec send_cached_header(Req, Code::200|304, Header::binary()|header_list()) -> ok
-send_cached_header(Req, Code, Header) ->
+%% @spec send_header(Req, Code::200|304, Header::binary()|header_list()) -> ok
+send_header(Req, Code, Header) ->
     HeaderBin = case is_binary(Header) of
                 true -> Header;
                 false -> header_list_to_binary(Header)
