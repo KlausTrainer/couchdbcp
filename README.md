@@ -19,6 +19,7 @@ For read requests, both eventual and atomic consistency are supported. However f
 
 ## Future Goals
 Future goals are:
+
 * allowing eventual consistency for write operations (will soon be available)
 * decentralized cluster configuration using an HTTP-based gossip protocol
 * data partitioning support based on consistent hashing (c.f. Riak)
@@ -26,11 +27,17 @@ Future goals are:
 
 
 # Version
-Version 0.1 - 2010-08-02
+Version 0.2 - 2010-08-09
 
 
 # Version History
-Version 0.1
+Version 0.2 - 2010-08-09
+    - Fixed Makefile. After checking out, `make` failed because the `ebin` directory was missing.
+    - Removed header_cache. It doesn't work out.
+    - Eventual consistency (in favor of availability) is also supported for write operations now.
+    - Established automatic conflict resolution.
+
+Version 0.1 - 2010-08-02
     - Initial version.
 
 
@@ -59,10 +66,12 @@ Of course, you also need to make sure that the CouchDB instance assigned to the 
 
 ## Consistency Semantics
 CouchDBCP supports two different data consistency levels to be set in the configuration file (`config/couchdbcp.erlenv`). However, the configured consistency level can be overridden on a per-request basis, simply by setting one of the following custom HTTP request headers:
+
 * `X-CouchDBCP-Consistency: atomic`
 * `X-CouchDBCP-Consistency: eventual`
 
 
 # Contributors
+
 * Klaus Trainer - original author
 * You! Come on...
