@@ -13,14 +13,9 @@ Currently, most Futon tests are passing. Some are failing because the REST const
 
 Regarding cookie authentication, CouchDBCP is currently able to maintain authentication state: If atomic consistency is used for cookie authentication (i.e., the `POST` request to `/_session`), it is possible to load-balance requests over all cluster nodes, without losing authentication.
 
-I don't know, however, whether OAuth will ever work cluster-wide, since OAuth is significantly more complex than cookie authentication.
-
-For read requests, both eventual and atomic consistency are supported. However for write requests, only atomic consistency is currently implemented. In practice that means that a cluster won't be available for a write operation when there is no quorum of nodes being able to commit.
-
 ## Future Goals
 Future goals are:
 
-* allowing eventual consistency for write operations (will soon be available)
 * decentralized cluster configuration using an HTTP-based gossip protocol
 * data partitioning support based on consistent hashing (c.f. Riak)
 * cluster monitoring
