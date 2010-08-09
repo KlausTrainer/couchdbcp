@@ -17,11 +17,8 @@ I don't know, however, whether OAuth will ever work cluster-wide, since OAuth is
 
 For read requests, both eventual and atomic consistency are supported. However for write requests, only atomic consistency is currently implemented. In practice that means that a cluster won't be available for a write operation when there is no quorum of nodes being able to commit.
 
-To minimize latency and reduce load on the database, CouchDBCP caches all HTTP headers that have an `ETag`. Therefore, `HEAD`-requests as well as `GET`-requests where the `If-None-Match` header field matches a cached header's `ETag`, can be served without necessarily hitting the database.
-
 ## Future Goals
 Future goals are:
-
 * allowing eventual consistency for write operations (will soon be available)
 * decentralized cluster configuration using an HTTP-based gossip protocol
 * data partitioning support based on consistent hashing (c.f. Riak)
@@ -51,12 +48,19 @@ CouchDBCP's configuration is done in `config/couchdbcp.erlenv`. Logging is confi
 See the included sample configuration.
 
 
-# Launching CouchDBCP
+# Usage
+
+## Launching CouchDBCP
 There are two scripts included to launch CouchDBCP: one for development (`start-dev.sh`), and one for a production environment (`start.sh`). To launch CouchDBCP, the first argument you need to specify is a yet unused node name (that is specified in the configuration file `config/couchdbcp.erlenv`). The second argument is the configuration file itself, e.g.:
 
     ./start-dev.sh proxy-1@127.0.0.11 config/couchdbcp.erlenv
 
 Of course, you also need to make sure that the CouchDB instance assigned to the respective CouchDBCP is up.
+
+## Consistency Semantics
+CouchDBCP supports two different data consistency levels to be set in the configuration file (`config/couchdbcp.erlenv`). However, the configured consistency level can be overridden on a per-request basis, simply by setting one of the following custom HTTP request headers:
+* `X-CouchDBCP-Consistency: atomic`
+* `X-CouchDBCP-Consistency: eventual`
 
 
 # Contributors
