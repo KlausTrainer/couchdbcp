@@ -17,7 +17,7 @@ Regarding cookie authentication, CouchDBCP is currently able to maintain authent
 Future goals are:
 
 * decentralized cluster configuration using an HTTP-based gossip protocol
-* data partitioning support based on consistent hashing (c.f. Riak)
+* data partitioning support based on consistent hashing (c.f. riak_core)
 * cluster monitoring
 
 

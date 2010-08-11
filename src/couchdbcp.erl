@@ -535,9 +535,25 @@ conflict_resolver(Addr, RawPath, Cookie, ResCode, ReqHeaders, ReqBody) ->
             Pid1 ! {self(), write},
             receive
                 {write_success, {201, _ResHeaderList, _ResBody}, Addr} ->
-                    Headers2 = mochiweb_headers:enter('If-Match', ETag, Headers1),
-                    Pid2 = spawn(fun() -> writer(Addr, RawPath, Cookie, Headers2, delete, []) end),
-                    Pid2 ! {no_response, write}
+                    {struct, L} = mochijson2:decode(ReqBody),
+                    RevCount = case ETag of
+                               undefined -> -1;
+                               _ -> ?l2i(string:substr(ETag, 2, 1))
+                               end,
+                    RevCount1 = case lists:keyfind(<<"_rev">>, 1, L) of
+                                false ->
+                                    0;
+                                {<<"_rev">>, Rev} ->
+                                    ?l2i(string:substr(?b2l(Rev), 1, 1))
+                                end,
+                    case RevCount =:= RevCount1 of
+                    true -> % delete conflicting version
+                        Headers2 = mochiweb_headers:enter('If-Match', ETag, Headers1),
+                        Pid2 = spawn(fun() -> writer(Addr, RawPath, Cookie, Headers2, delete, []) end),
+                        Pid2 ! {no_response, write};
+                    false ->
+                        ok
+                    end
             after ?WRITE_TIMEOUT ->
                 ok
             end
