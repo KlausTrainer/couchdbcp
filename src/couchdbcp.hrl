@@ -1,4 +1,4 @@
-%% @type method() = copy | delete | get | head | post | put.
+%% @type method() = copy | delete | get | head | post | put
 %% @type header_list() = [{Header::atom()|string(), Value::atom()|string()}]
 %% @type address() = {Domain::ip_address()|string(), Port::int()}
 

@@ -22,7 +22,10 @@ start(_Type, _StartArgs) ->
     true -> nop; % promising to set all env variables some other way
     _ -> read_config()
     end,
-    register(cookie_store, spawn(fun couchdbcp:cookie_store/0)),
+    CookieTimeout = couchdbcp:get_app_env(cookie_timeout, 600000),
+    {ok, Cache} = term_cache:start_link([{size, 4000000000},
+        {ttl, CookieTimeout}, {name, cookie_store}]),
+    set_erlenv([{cookie_store, Cache}]),
     register(replication_status_store, spawn(fun couchdbcp:replication_status_store/0)),
     start_peer_notifiers(),
     register(couchdbcp_app, self()),

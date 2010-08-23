@@ -13,7 +13,7 @@
 %% user interface
 -export([start/0, start/1, stop/0]).
 %% intermodule exports
--export([get_app_env/1, get_app_env/2, cookie_store/0, check_read_quorum/2, notify_replication_success_to_peers/1, peer_notifier/2, replication_status_store/0, write/6]).
+-export([get_app_env/1, get_app_env/2, check_read_quorum/2, notify_replication_success_to_peers/1, peer_notifier/2, replication_status_store/0, write/6]).
 
 -define(IBROWSE_OPTIONS, [{response_format, binary}, {connect_timeout, 5000}, {inactivity_timeout, infinity}]).
 -define(READ_TIMEOUT, 6000).
@@ -71,24 +71,6 @@ get_app_env(Opt, Default) ->
         {ok, [[Val|_]]} -> Val;
         error -> Default
         end
-    end.
-
-%% @spec cookie_store() -> none()
-%% @doc Stores the peer's cookies, so we can authenticate to them.
-cookie_store() ->
-    receive
-        {From, {get, KeyCookie}} ->
-            case get(?l2b(KeyCookie)) of
-            undefined -> From ! {self(), undefined};
-            ValueCookie -> From ! {self(), ?b2l(ValueCookie)}
-            end,
-            cookie_store();
-        {put, {KeyCookie, ValueCookie}} ->
-            put(?l2b(KeyCookie), ?l2b(ValueCookie)),
-            cookie_store();
-        {erase, Cookie} ->
-            erase(?l2b(Cookie)),
-            cookie_store()
     end.
 
 %% @spec replication_status_store() -> none()
@@ -579,17 +561,22 @@ send_cookies_to_peers(Addr, Cookie, ResHeaderList, Results) ->
                 {_, ResCookieHeader} when Addr1 =/= Addr andalso HasCookie =:= undefined ->
                     ResCookie = proplists:get_value("AuthSession", mochiweb_cookies:parse_cookie(ResCookieHeader)),
                     case Addr1 of
+                    Addr1 when ResCookie =:= [] ->
+                        ok;
                     ThisCouch ->
+                        CookieStore = get_app_env(cookie_store),
                         case ResCookie of
+                        [] when Cookie =:= [] ->
+                            ok;
                         [] when Cookie =/= undefined ->
-                            cookie_store ! {erase, Cookie};
+                            term_cache:erase(CookieStore, Cookie);
                         _ ->
-                            cookie_store ! {put, {NewCookie, ResCookie}}
+                            term_cache:put(CookieStore, NewCookie, ResCookie)
                         end;
                     Addr1 ->
                         Url = couchdbcp_web:make_url(Addr1, ""),
                         case ResCookie of
-                        [] when Cookie =/= undefined ->
+                        [] when Cookie =/= undefined andalso Cookie =/= [] ->
                             HeaderList = [{'X-CouchDBCP-Unset-Cookie', Cookie}],
                             Body = [];
                         _ ->

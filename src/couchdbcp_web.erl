@@ -139,7 +139,8 @@ loop(Req, _DocRoot) ->
             {Domain, Port} = ThisCouch,
             TargetUrl = ?l2b("http://" ++ Auth ++ Domain ++ ":" ++ ?i2l(Port) ++ "/" ++ DB),
             Body = <<"{\"source\":\"",SourceUrl/binary,"\",\"target\":\"",TargetUrl/binary,"\"}">>,
-            case handle_write_request(Req, ThisCouch, "/_replicate", make_header_list(Headers, Cookie, ThisCouch), post, Body) of
+            Headers1 = mochiweb_headers:enter("Content-Type", "application/json", Headers),
+            case handle_write_request(Req, ThisCouch, "/_replicate", make_header_list(Headers1, Cookie, ThisCouch), post, Body) of
             {error, _Reason} ->
                 error_logger:info_msg("Could not update ~p.~n", [DB]),
                 gen_tcp:close(Req:get(socket));
@@ -157,10 +158,13 @@ loop(Req, _DocRoot) ->
         Req:respond({200, [], []});
     post when CouchDBCP_SetCookie =/= undefined ->
         {Cookie1, Cookie2} = ?b2t(Req:recv_body()),
-        cookie_store ! {put, {Cookie1, Cookie2}},
+        case Cookie1 of
+        [] -> ok;
+        _ -> term_cache:put(couchdbcp:get_app_env(cookie_store), Cookie1, Cookie2)
+        end,
         Req:respond({200, [], []});
     post when CouchDBCP_UnsetCookie =/= undefined ->
-        cookie_store ! {erase, CouchDBCP_UnsetCookie},
+        term_cache:erase(couchdbcp:get_app_env(cookie_store), CouchDBCP_UnsetCookie),
         Req:respond({200, [], []});
     Method when Method =:= delete; Method =:= copy; Method =:= post; Method =:= put ->
         Body = case Method of
@@ -222,10 +226,10 @@ make_header_list(Headers, Cookie, Addr) ->
     Addr when Cookie =/= undefined andalso Cookie =/= [] ->
         CookieHeader = mochiweb_headers:get_value("Cookie", Headers),
         Headers1 = 
-            case rpc(cookie_store, {get, Cookie}) of
-            undefined ->
+            case term_cache:get(couchdbcp:get_app_env(cookie_store), Cookie) of
+            not_found ->
                 Headers;
-            Cookie1 ->
+            {ok, Cookie1} ->
                 CookieHeader1 = re:replace(CookieHeader, Cookie, Cookie1, [{return, list}]),
                 mochiweb_headers:enter("Cookie", CookieHeader1, Headers)
             end,
