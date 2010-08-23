@@ -10,4 +10,4 @@
 {couchdbcp_write_consistency, atomic}. % here only atomic is supported currently
 {couchdbcp_admin_authorization, {"admin", "secret"}}. % {User, Password}
 
-{cookie_timeout, 600000}. % Cookies will expire after not being used for more than 10000 ms
+{cookie_timeout, 600000}. % Cookies will expire after not being used for more than cookie_timeout milliseconds.
