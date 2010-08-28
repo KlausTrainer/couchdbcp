@@ -15,7 +15,8 @@
 %% intermodule exports
 -export([get_app_env/1, get_app_env/2, check_read_quorum/2, notify_replication_success_to_peers/1, peer_notifier/2, replication_status_store/0, write/6]).
 
--define(IBROWSE_OPTIONS, [{response_format, binary}, {connect_timeout, 5000}, {inactivity_timeout, infinity}]).
+-define(IBROWSE_OPTIONS, [{response_format, binary}, {connect_timeout, 5000},
+    {inactivity_timeout, infinity}]).
 -define(READ_TIMEOUT, 6000).
 -define(WRITE_TIMEOUT, 8000).
 -define(RANDOM_TIMEOUT, random:uniform(20000) + 10000).
@@ -24,7 +25,7 @@
 
 %% @spec start([ConfigPath::list()]) -> ok
 %% @doc Start couchdbcp.
-%%      ``ConfigPath'' specifies the location of the couchdbcp configuration file.
+%%      `ConfigPath' specifies the location of the couchdbcp configuration file.
 start([ConfigPath]) ->
     application:set_env(couchdbcp, configpath, ConfigPath),
     start().
@@ -55,13 +56,13 @@ stop(Reason) ->
 
 %% @spec get_app_env(atom()) -> term()
 %% @doc The official way to get the values set in couchdbcp's configuration
-%%      file. Will return ``undefined'' if that option is unset.
+%%      file. Will return `undefined' if that option is unset.
 get_app_env(Opt) ->
     get_app_env(Opt, undefined).
 
 %% @spec get_app_env(atom(), term()) -> term()
 %% @doc The official way to get the values set in couchdbcp's configuration
-%%      file. Will return ``Default'' if that option is unset.
+%%      file. Will return `Default' if that option is unset.
 get_app_env(Opt, Default) ->
     case application:get_env(couchdbcp, Opt) of
     {ok, Val} ->
@@ -74,7 +75,7 @@ get_app_env(Opt, Default) ->
     end.
 
 %% @spec replication_status_store() -> none()
-%% @doc Stores databases that are replicated. For a database that is replicated, a key with the database name together with the value ``true'' is stored in the process dictionary.
+%% @doc Stores databases that are replicated. For a database that is replicated, a key with the database name together with the value `true' is stored in the process dictionary.
 replication_status_store() ->
     receive
         {From, {get, DB}} ->
@@ -94,8 +95,8 @@ check_read_quorum(RawPath, Cookie) ->
     Proxies = get_app_env(proxies),
     Pids = lists:map(fun(Proxy) ->
                          Addr = case get_app_env(this_proxy) of
-                                % if ``Proxy'' is ``this_proxy'',
-                                % write directly to ``this_couch''
+                                % if `Proxy' is `this_proxy',
+                                % write directly to `this_couch'
                                 Proxy -> get_app_env(this_couch);
                                 _ -> Proxy
                                 end,
@@ -114,7 +115,7 @@ check_read_quorum(RawPath, Cookie) ->
     end.
 
 %% @spec write(Consistency::atomic|eventual, RawPath::string(), Cookie::string(), Headers::headers(), Method::method(), Body::binary()) -> {ok, {ResCode::int(), ResHeaderList::header_list(), ResBody::binary()}} | {error, Code}
-%% @doc Depending on the value of ``Consistency'', this function starts a write
+%% @doc Depending on the value of `Consistency', this function starts a write
 %%      operation with either eventual or atomic data consistency guaranteed.
 write(Consistency, RawPath, Cookie, Headers, Method, Body) ->
     Proxies = get_app_env(proxies),
@@ -129,11 +130,14 @@ write(Consistency, RawPath, Cookie, Headers, Method, Body) ->
                        Host = mochiweb_headers:get_value("Host", Headers),
                        {Domain, Port} = get_app_env({couch_by_proxy, Proxy}),
                        Addr1 = ?l2b([?l2b(Domain), <<":">>, ?l2b(?i2l(Port))]),
-                       Body1 = re:replace(Body, ?l2b(Host), Addr1, [{return, binary}]);
+                       Body1 = re:replace(Body, ?l2b(Host), Addr1,
+                           [{return, binary}]);
                    _ -> 
                        Body1 = Body
                    end,
-                   [spawn(fun() -> writer(Addr, RawPath, Cookie, Headers, Method, Body1) end)|Pids]
+                   [spawn(fun() ->
+                              writer(Addr, RawPath, Cookie, Headers, Method, Body1)
+                          end)|Pids]
                end, [], Proxies),
     MyPid = self(),
     Pid = spawn(fun() ->
@@ -153,7 +157,7 @@ write(Consistency, RawPath, Cookie, Headers, Method, Body) ->
     end.
 
 %% @spec peer_notifier(Proxy::address(), queue()) -> none()
-%% @doc Periodically tries to notify a peer (``Proxy'') about missed updates.
+%% @doc Periodically tries to notify a peer (`Proxy') about missed updates.
 %%      This will be retried until the peer is live again and until it has
 %%      received the notification about missing updates.
 peer_notifier(Proxy, Q) ->
@@ -177,7 +181,8 @@ peer_notifier(Proxy, Q) ->
         true ->
             Url = couchdbcp_web:make_url(Proxy, "/" ++ DB),
             {Domain, Port} = get_app_env(this_couch),
-            HeaderList = [{'X-CouchDBCP-Replicate', Domain ++ ":" ++ ?i2l(Port)}],
+            HeaderList =
+                [{'X-CouchDBCP-Replicate', Domain ++ ":" ++ ?i2l(Port)}],
             case ibrowse:send_req(Url, HeaderList, post, [], ?IBROWSE_OPTIONS) of
             {error, _Reason} ->
                 Q2 = Q,
@@ -227,7 +232,7 @@ notify_replication_success_to_peers(DB) ->
 %% Internal API
 
 %% @spec tell_peers(ProxyList::[address()], DeadProxy::address(), DB::string) -> void()
-%% @doc Tell all live peers about an update of ``DB'' that peer ``DeadProxy'' is missing.
+%% @doc Tell all live peers about an update of `DB' that peer `DeadProxy' is missing.
 tell_peers(ProxyList, DeadProxy, DB) ->
     lists:foreach(
         fun(Proxy) ->
@@ -331,11 +336,13 @@ atomic_write_response_processor(Pid, _Method, RawPath, Cookie, ReqHeaders, ReqBo
         {ok, {Res, Addr}} ->
             Pid ! {self(), {ok, Res}},
             {ResCode, ResHeaderList, _ResBody} = Res,
-            resolve_conflicts(RawPath, Cookie, ResCode, ReqHeaders, ReqBody, Results),
+            resolve_conflicts(RawPath, Cookie, ResCode, ReqHeaders, ReqBody,
+                Results),
             send_cookies_to_peers(Addr, Cookie, ResHeaderList, Results)
         end;
     {{ResCode, ResHeaderList, _ResBody}, Addr} ->
-        resolve_conflicts(RawPath, Cookie, ResCode, ReqHeaders, ReqBody, Results),
+        resolve_conflicts(RawPath, Cookie, ResCode, ReqHeaders, ReqBody,
+            Results),
         send_cookies_to_peers(Addr, Cookie, ResHeaderList, Results)
     end;
 atomic_write_response_processor(Pid, Method, RawPath, Cookie, ReqHeaders, ReqBody, NumNodes, NumResps, Results) ->
@@ -349,12 +356,14 @@ atomic_write_response_processor(Pid, Method, RawPath, Cookie, ReqHeaders, ReqBod
             put(quorum, {Res, Addr}),
             Pid ! {self(), {ok, Res}},
             {ResCode, ResHeaderList, _ResBody} = Res,
-            resolve_conflicts(RawPath, Cookie, ResCode, ReqHeaders, ReqBody, Results),
+            resolve_conflicts(RawPath, Cookie, ResCode, ReqHeaders, ReqBody,
+                Results),
             send_cookies_to_peers(Addr, Cookie, ResHeaderList, Results)
         end;
     true ->
         {{ResCode, ResHeaderList, _ResBody}, Addr} = Quorum,
-        resolve_conflicts(RawPath, Cookie, ResCode, ReqHeaders, ReqBody, Results),
+        resolve_conflicts(RawPath, Cookie, ResCode, ReqHeaders, ReqBody,
+            Results),
         send_cookies_to_peers(Addr, Cookie, ResHeaderList, Results);
     _ ->
         ok
@@ -369,7 +378,8 @@ atomic_write_response_processor(Pid, Method, RawPath, Cookie, ReqHeaders, ReqBod
         {{ResCode1, _ResHeaderList1, _ResBody1}, _Addr1} ->
             if
             ResCode1 =:= 200; ResCode1 =:= 201 ->
-                resolve_conflicts(RawPath, Cookie, ResCode1, ReqHeaders, ReqBody, Results),
+                resolve_conflicts(RawPath, Cookie, ResCode1, ReqHeaders,
+                    ReqBody, Results),
                 Proxies = get_app_env(proxies),
                 ThisCouch = get_app_env(this_couch),
                 LivePeers = lists:foldl(fun(E, Acc) ->
@@ -389,7 +399,8 @@ atomic_write_response_processor(Pid, Method, RawPath, Cookie, ReqHeaders, ReqBod
                         true ->
                             ok;
                         false ->
-                            {DB, _DocName} = couchdbcp_web:get_db_and_doc_name(RawPath),
+                            {DB, _DocName} =
+                                couchdbcp_web:get_db_and_doc_name(RawPath),
                             case string:substr(DB, 1, 1) =:= "_" of
                             true ->
                                 ok;
@@ -422,7 +433,8 @@ eventual_write_response_processor(Pid, Method, RawPath, Cookie, ReqHeaders, ReqB
     _ ->
         {Res, Addr} = get(result),
         {ResCode, ResHeaderList, _ResBody} = Res,
-        resolve_conflicts(RawPath, Cookie, ResCode, ReqHeaders, ReqBody, Results),
+        resolve_conflicts(RawPath, Cookie, ResCode, ReqHeaders, ReqBody,
+            Results),
         send_cookies_to_peers(Addr, Cookie, ResHeaderList, Results)
     end,
     receive
@@ -436,7 +448,8 @@ eventual_write_response_processor(Pid, Method, RawPath, Cookie, ReqHeaders, ReqB
             {ResCode1, _ResHeaderList1, _ResBody1} = Res1,
             if
             ResCode1 =:= 200; ResCode1 =:= 201 ->
-                resolve_conflicts(RawPath, Cookie, ResCode1, ReqHeaders, ReqBody, Results),
+                resolve_conflicts(RawPath, Cookie, ResCode1, ReqHeaders,
+                    ReqBody, Results),
                 Proxies = get_app_env(proxies),
                 ThisCouch = get_app_env(this_couch),
                 LivePeers = lists:foldl(fun(E, Acc) ->
@@ -456,7 +469,8 @@ eventual_write_response_processor(Pid, Method, RawPath, Cookie, ReqHeaders, ReqB
                         true ->
                             ok;
                         false ->
-                            {DB, _DocName} = couchdbcp_web:get_db_and_doc_name(RawPath),
+                            {DB, _DocName} =
+                                couchdbcp_web:get_db_and_doc_name(RawPath),
                             case string:substr(DB, 1, 1) =:= "_" of
                             true ->
                                 ok;
@@ -473,7 +487,7 @@ eventual_write_response_processor(Pid, Method, RawPath, Cookie, ReqHeaders, ReqB
         end
     end.
 
-%% @doc Resolves all conflicts in ``Results''.
+%% @doc Resolves all conflicts in `Results'.
 resolve_conflicts(RawPath, Cookie, ResCode, ReqHeaders, ReqBody, Results) ->
     if
     ResCode =:= 200; ResCode =:= 201 ->
@@ -489,7 +503,8 @@ resolve_conflicts(RawPath, Cookie, ResCode, ReqHeaders, ReqBody, Results) ->
             fun(Conflict) ->
                 {{ResCode1, _, _}, Addr1} = Conflict,
                 spawn(fun() ->
-                          conflict_resolver(Addr1, RawPath, Cookie, ResCode1, ReqHeaders, ReqBody)
+                          conflict_resolver(Addr1, RawPath, Cookie, ResCode1,
+                              ReqHeaders, ReqBody)
                       end)
             end, Conflicts);
     true ->
@@ -501,19 +516,23 @@ conflict_resolver(Addr, RawPath, Cookie, ResCode, ReqHeaders, ReqBody) ->
     Pid ! {self(), get_rev},
     receive
         {rev_info, _, ETag, _, _} ->
-            Headers = mochiweb_headers:enter('Content-Type', "application/json", ReqHeaders),
+            Headers = mochiweb_headers:enter('Content-Type',
+                "application/json", ReqHeaders),
             Headers1 =
                 case ResCode of
                 401 ->
                     {User, PW} = get_app_env(couchdbcp_admin_authorization),
-                    Auth = "Basic " ++ base64:encode_to_string(User ++ ":" ++ PW),
+                    Auth =
+                        "Basic " ++ base64:encode_to_string(User ++ ":" ++ PW),
                     mochiweb_headers:enter('Authorization', Auth, Headers);
                 409 ->
                     Headers
                 end,
             {DB, _Doc} = couchdbcp_web:get_db_and_doc_name(RawPath),
             Body = <<"{\"all_or_nothing\": true, \"docs\": [",ReqBody/binary,"]}">>,
-            Pid1 = spawn(fun() -> writer(Addr, "/" ++ DB ++ "/_bulk_docs", Cookie, Headers1, post, Body) end),
+            Pid1 = spawn(fun() -> writer(Addr, "/" ++ DB ++ "/_bulk_docs",
+                             Cookie, Headers1, post, Body)
+                         end),
             Pid1 ! {self(), write},
             receive
                 {write_success, {201, _ResHeaderList, _ResBody}, Addr} ->
@@ -530,8 +549,10 @@ conflict_resolver(Addr, RawPath, Cookie, ResCode, ReqHeaders, ReqBody) ->
                                 end,
                     case RevCount =:= RevCount1 of
                     true -> % delete conflicting version
-                        Headers2 = mochiweb_headers:enter('If-Match', ETag, Headers1),
-                        Pid2 = spawn(fun() -> writer(Addr, RawPath, Cookie, Headers2, delete, []) end),
+                        Headers2 = mochiweb_headers:enter('If-Match', ETag,
+                            Headers1),
+                        Pid2 = spawn(fun() -> writer(Addr, RawPath, Cookie,
+                            Headers2, delete, []) end),
                         Pid2 ! {no_response, write};
                     false ->
                         ok
@@ -559,7 +580,8 @@ send_cookies_to_peers(Addr, Cookie, ResHeaderList, Results) ->
                 HasCookie = get({has_cookie, Addr1}),
                 case lists:keyfind("Set-Cookie", 1, ResHeaderList1) of
                 {_, ResCookieHeader} when Addr1 =/= Addr andalso HasCookie =:= undefined ->
-                    ResCookie = proplists:get_value("AuthSession", mochiweb_cookies:parse_cookie(ResCookieHeader)),
+                    ResCookie = proplists:get_value("AuthSession",
+                        mochiweb_cookies:parse_cookie(ResCookieHeader)),
                     case Addr1 of
                     Addr1 when ResCookie =:= [] ->
                         ok;

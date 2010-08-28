@@ -15,7 +15,8 @@
 %% intermodule exports
 -export([get_db_and_doc_name/1, make_header_list/3, make_url/2]).
 
--define(IBROWSE_OPTIONS, [{response_format, binary}, {connect_timeout, 5000}, {inactivity_timeout, infinity}]).
+-define(IBROWSE_OPTIONS, [{response_format, binary}, {connect_timeout, 5000},
+    {inactivity_timeout, infinity}]).
 -define(TIMEOUT, 5000).
 
 %% External API
@@ -139,7 +140,8 @@ loop(Req, _DocRoot) ->
             {Domain, Port} = ThisCouch,
             TargetUrl = ?l2b("http://" ++ Auth ++ Domain ++ ":" ++ ?i2l(Port) ++ "/" ++ DB),
             Body = <<"{\"source\":\"",SourceUrl/binary,"\",\"target\":\"",TargetUrl/binary,"\"}">>,
-            Headers1 = mochiweb_headers:enter("Content-Type", "application/json", Headers),
+            Headers1 = mochiweb_headers:enter("Content-Type",
+                "application/json", Headers),
             case handle_write_request(Req, ThisCouch, "/_replicate", make_header_list(Headers1, Cookie, ThisCouch), post, Body) of
             {error, _Reason} ->
                 error_logger:info_msg("Could not update ~p.~n", [DB]),
@@ -164,7 +166,8 @@ loop(Req, _DocRoot) ->
         end,
         Req:respond({200, [], []});
     post when CouchDBCP_UnsetCookie =/= undefined ->
-        term_cache:erase(couchdbcp:get_app_env(cookie_store), CouchDBCP_UnsetCookie),
+        term_cache:erase(couchdbcp:get_app_env(cookie_store),
+            CouchDBCP_UnsetCookie),
         Req:respond({200, [], []});
     Method when Method =:= delete; Method =:= copy; Method =:= post; Method =:= put ->
         Body = case Method of
@@ -186,8 +189,10 @@ loop(Req, _DocRoot) ->
             {ok, {ResCode, ResHeaderList, Body1}} ->
                 case lists:keyfind("Transfer-Encoding", 1, ResHeaderList) of
                 {_, "chunked"} ->
-                    ResHeaderList1 = lists:keydelete("Transfer-Encoding", 1, ResHeaderList),
-                    ResHeaderList2 = lists:keystore("Content-Length", 1, ResHeaderList1, {"Content-Length", byte_size(Body1)});
+                    ResHeaderList1 = lists:keydelete("Transfer-Encoding", 1,
+                        ResHeaderList),
+                    ResHeaderList2 = lists:keystore("Content-Length", 1,
+                        ResHeaderList1, {"Content-Length", byte_size(Body1)});
                 _ ->
                     ResHeaderList2 = ResHeaderList
                 end,
@@ -220,7 +225,7 @@ get_db_and_doc_name(RawPath) ->
     end.
 
 %% @spec make_header_list(Headers::headers(), Cookie::string(), Addr::address()) -> header_list()
-%% @doc Makes a ``header_list()'' from ``headers()'' and replaces the AuthSession Cookie if necessary.
+%% @doc Makes a `header_list()' from `headers()' and replaces the AuthSession Cookie if necessary.
 make_header_list(Headers, Cookie, Addr) ->
     case couchdbcp:get_app_env(this_couch) of
     Addr when Cookie =/= undefined andalso Cookie =/= [] ->
@@ -230,7 +235,8 @@ make_header_list(Headers, Cookie, Addr) ->
             not_found ->
                 Headers;
             {ok, Cookie1} ->
-                CookieHeader1 = re:replace(CookieHeader, Cookie, Cookie1, [{return, list}]),
+                CookieHeader1 = re:replace(CookieHeader, Cookie, Cookie1,
+                    [{return, list}]),
                 mochiweb_headers:enter("Cookie", CookieHeader1, Headers)
             end,
         mochiweb_headers:to_list(Headers1);
@@ -334,7 +340,7 @@ stream_response_body(Res, ReqId) ->
             stream_response_body(Res, ReqId);
         {ibrowse_async_response_end, ReqId} ->
             ok
-    % Here, we don't have an ``after'' clause, since it may take arbitrarily
+    % Here, we don't have an `after' clause, since it may take arbitrarily
     % long until another chunk is sent (just think of continuous replication).
     end.
 
@@ -381,7 +387,8 @@ replace_location_header(HeaderList, Request) ->
                 undefined -> Host;
                 _ -> Forwarded_Host
                 end,
-        Location1 = re:replace(Location, "([hpst]+)://[^/]+(.*)", "\\1://" ++ Host1 ++ "\\2", [{return, list}]),
+        Location1 = re:replace(Location, "([hpst]+)://[^/]+(.*)",
+            "\\1://" ++ Host1 ++ "\\2", [{return, list}]),
         lists:keystore("Location", 1, HeaderList, {"Location", Location1});
     false ->
         HeaderList
