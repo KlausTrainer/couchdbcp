@@ -139,7 +139,7 @@ loop(Req, _DocRoot) ->
             SourceUrl = ?l2b("http://" ++ Auth ++ CouchDBCP_Replicate ++ RawPath),
             {Domain, Port} = ThisCouch,
             TargetUrl = ?l2b("http://" ++ Auth ++ Domain ++ ":" ++ ?i2l(Port) ++ "/" ++ DB),
-            Body = <<"{\"source\":\"",SourceUrl/binary,"\",\"target\":\"",TargetUrl/binary,"\"}">>,
+            Body = <<"{\"source\":\"",SourceUrl/binary,"\",\"target\":\"",TargetUrl/binary,"\",\"create_target\":true}">>,
             Headers1 = mochiweb_headers:enter("Content-Type",
                 "application/json", Headers),
             case handle_write_request(Req, ThisCouch, "/_replicate", make_header_list(Headers1, Cookie, ThisCouch), post, Body) of
